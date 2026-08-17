@@ -618,6 +618,9 @@ export default function ListenPage({
   const [muted, setMuted]           = React.useState(false)
   const [history, setHistory]       = React.useState<HistoryTrack[]>([])
   const [playlist, setPlaylist]     = React.useState<PlaylistInfo | null>(null)
+  // Now-playing read straight from the HLS manifest's EXT-X-DATERANGE tag —
+  // stays in sync with what's actually audible, unlike the 5s /public poll.
+  const [streamNowPlaying, setStreamNowPlaying] = React.useState<NowPlaying>(null)
 
   React.useEffect(() => { setServerBase(getServerBase()) }, [])
 
@@ -660,7 +663,7 @@ export default function ListenPage({
   }, [serverBase, mount, station?.status])
 
   // Ambient glow
-  const np = station?.now_playing
+  const np = streamNowPlaying ?? station?.now_playing
   const trackColors = strColor((np?.title ?? "") + (np?.artist ?? ""))
   React.useEffect(() => {
     document.documentElement.style.setProperty("--kp-ambient-1", trackColors[0])
@@ -695,7 +698,7 @@ export default function ListenPage({
 
   const startPlay = React.useCallback(() => {
     if (!hlsUrl || !audioRef.current) return
-    setLoading(true); setHlsError(null)
+    setLoading(true); setHlsError(null); setStreamNowPlaying(null)
     const audio = audioRef.current
     const onPlay  = () => { setPlaying(true);  setLoading(false) }
     const onPause = () => setPlaying(false)
@@ -713,6 +716,20 @@ export default function ListenPage({
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) { setHlsError("Stream error"); setLoading(false) }
       })
+      hls.on(Hls.Events.LEVEL_UPDATED, (_, data) => {
+        const dateRanges = data.details?.dateRanges
+        if (!dateRanges) return
+        const nowPlaying = Object.values(dateRanges).find(
+          (dr) => dr?.class === "com.kast.nowplaying"
+        )
+        if (!nowPlaying) return
+        setStreamNowPlaying({
+          title:       nowPlaying.attr["X-TITLE"] ?? "",
+          artist:      nowPlaying.attr["X-ARTIST"] ?? "",
+          album:       "",
+          duration_ms: Math.round((nowPlaying.duration ?? 0) * 1000),
+        })
+      })
     } else if (audio.canPlayType("application/vnd.apple.mpegurl")) {
       audio.src = hlsUrl
       audio.play().catch(() => {})
@@ -729,7 +746,7 @@ export default function ListenPage({
   const stopPlay = () => {
     hlsRef.current?.destroy(); hlsRef.current = null
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = "" }
-    setPlaying(false); setLoading(false)
+    setPlaying(false); setLoading(false); setStreamNowPlaying(null)
   }
 
   const handlePlayToggle = () => {

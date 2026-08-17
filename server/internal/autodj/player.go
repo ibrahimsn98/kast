@@ -43,17 +43,18 @@ func (j JingleConfig) Enabled() bool {
 
 // Player manages AutoDJ playback for one mount.
 type Player struct {
-	mu           sync.Mutex
-	tracks       []*library.Track
-	queue        []*library.Track // FIFO one-shot; drained before regular playlist advances
-	mode         Mode
-	crossfadeMs  int
-	current      int
-	cancel       context.CancelFunc
-	running      bool
-	nowPlaying   atomic.Pointer[library.Track]
-	onTrackStart func(*library.Track) // called each time a new track begins
-	onJingleStart func(*library.Track) // called when a jingle/ad is selected
+	mu              sync.Mutex
+	tracks          []*library.Track
+	queue           []*library.Track // FIFO one-shot; drained before regular playlist advances
+	mode            Mode
+	crossfadeMs     int
+	current         int
+	cancel          context.CancelFunc
+	running         bool
+	nowPlaying      atomic.Pointer[library.Track]
+	nowPlayingSince atomic.Pointer[time.Time]
+	onTrackStart    func(*library.Track) // called each time a new track begins
+	onJingleStart   func(*library.Track) // called when a jingle/ad is selected
 	// skipMu guards currentCmd so Skip() can kill it without holding mu.
 	skipMu     sync.Mutex
 	currentCmd *exec.Cmd
@@ -153,6 +154,15 @@ func (p *Player) NowPlaying() *library.Track {
 	return p.nowPlaying.Load()
 }
 
+// NowPlayingSince returns when the current track started playing, or the
+// zero time if idle.
+func (p *Player) NowPlayingSince() time.Time {
+	if t := p.nowPlayingSince.Load(); t != nil {
+		return *t
+	}
+	return time.Time{}
+}
+
 // Skip immediately ends the current track and advances to the next one.
 func (p *Player) Skip() {
 	p.skipMu.Lock()
@@ -167,6 +177,7 @@ func (p *Player) loop(ctx context.Context, out io.WriteCloser) {
 	defer out.Close()
 	defer func() {
 		p.nowPlaying.Store(nil)
+		p.nowPlayingSince.Store(nil)
 		p.mu.Lock()
 		p.running = false
 		p.mu.Unlock()
@@ -182,6 +193,8 @@ func (p *Player) loop(ctx context.Context, out io.WriteCloser) {
 			return
 		}
 		p.nowPlaying.Store(track)
+		since := time.Now()
+		p.nowPlayingSince.Store(&since)
 		slog.Info("autodj: playing", "title", track.Title, "artist", track.Artist, "jingle", isJingle)
 		if p.onTrackStart != nil {
 			p.onTrackStart(track)
@@ -218,7 +231,7 @@ func (p *Player) playTrack(ctx context.Context, t *library.Track, out io.Writer)
 		"ffmpeg",
 		"-hide_banner",
 		"-loglevel", "error",
-		"-re",            // read input at native playback rate (real-time)
+		"-re", // read input at native playback rate (real-time)
 		"-i", filepath.Clean(t.Path),
 		"-vn",        // no video
 		"-f", "adts", // raw AAC stream to stdout

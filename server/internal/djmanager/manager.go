@@ -11,14 +11,15 @@ import (
 	"log/slog"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/riza/kast/internal/autodj"
 	"github.com/riza/kast/internal/hls"
 	"github.com/riza/kast/internal/library"
 	"github.com/riza/kast/internal/mount"
 	"github.com/riza/kast/internal/playlist"
-	"github.com/riza/kast/internal/webrtcmanager"
 	"github.com/riza/kast/internal/webhook"
+	"github.com/riza/kast/internal/webrtcmanager"
 )
 
 // session holds all resources for one active AutoDJ mount.
@@ -259,6 +260,18 @@ func (m *Manager) NowPlaying(mountName string) *library.Track {
 	return sess.player.NowPlaying()
 }
 
+// NowPlayingSince returns when the current track started playing on
+// mountName, or the zero time if idle.
+func (m *Manager) NowPlayingSince(mountName string) time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sess, ok := m.sessions[mountName]
+	if !ok {
+		return time.Time{}
+	}
+	return sess.player.NowPlayingSince()
+}
+
 // Skip advances the current track immediately on mountName.
 func (m *Manager) Skip(mountName string) error {
 	m.mu.Lock()
@@ -393,4 +406,3 @@ func (m *Manager) ResolveJingles(mountName string, byPath map[string]*library.Tr
 		EveryMinutes: mt.JingleEveryMinutes,
 	}
 }
-

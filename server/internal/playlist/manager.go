@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -232,19 +233,19 @@ func (m *Manager) load() error {
 	if err != nil {
 		return fmt.Errorf("playlist: load: %w", err)
 	}
-	defer rows.Close()
-
+	var needsPersist []*Playlist
 	for rows.Next() {
 		var (
-			p          Playlist
-			pathsJSON  string
-			createdAt  string
-			updatedAt  string
+			p         Playlist
+			pathsJSON string
+			createdAt string
+			updatedAt string
 		)
 		if err := rows.Scan(
 			&p.ID, &p.Name, &p.Description, &p.Mode, &p.CrossfadeMs,
 			&pathsJSON, &p.LastPlayedPath, &createdAt, &updatedAt,
 		); err != nil {
+			rows.Close()
 			return fmt.Errorf("playlist: load scan: %w", err)
 		}
 		if err := json.Unmarshal([]byte(pathsJSON), &p.TrackPaths); err != nil {
@@ -255,10 +256,61 @@ func (m *Manager) load() error {
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+
 		cp := p
 		m.playlists[p.ID] = &cp
+		if normalizeTrackPaths(&cp) {
+			needsPersist = append(needsPersist, &cp)
+		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close() // release the single SQLite connection before writing below
+
+	// Playlists saved before the library scanner switched to absolute paths
+	// (see scanner.go's filepath.Abs normalization) may still hold relative
+	// track paths, which never match scanned tracks and silently break
+	// AutoDJ/HLS for that mount. Persist the normalized paths once here so
+	// old playlists self-heal on the next server start.
+	for _, p := range needsPersist {
+		if err := m.updateDB(p); err != nil {
+			slog.Warn("playlist: load: failed to persist normalized paths", "id", p.ID, "err", err)
+			continue
+		}
+		slog.Info("playlist: normalized relative track paths to absolute", "id", p.ID, "name", p.Name)
+	}
+	return nil
+}
+
+// normalizeTrackPaths resolves any relative paths in p.TrackPaths and
+// p.LastPlayedPath to absolute, matching the convention used by the library
+// scanner. Returns true if anything changed.
+func normalizeTrackPaths(p *Playlist) bool {
+	changed := false
+	for i, path := range p.TrackPaths {
+		if abs, ok := toAbsPath(path); ok {
+			p.TrackPaths[i] = abs
+			changed = true
+		}
+	}
+	if abs, ok := toAbsPath(p.LastPlayedPath); ok {
+		p.LastPlayedPath = abs
+		changed = true
+	}
+	return changed
+}
+
+func toAbsPath(path string) (string, bool) {
+	if path == "" || filepath.IsAbs(path) {
+		return path, false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path, false
+	}
+	return abs, true
 }
 
 func coerceMode(s string) string {
