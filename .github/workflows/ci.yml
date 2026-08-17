@@ -12,6 +12,10 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    env:
+      # secrets.* can't be referenced directly in a step "if:" expression —
+      # mirror it into env so the Qualflare step below can check for it.
+      QUALFLARE_TOKEN: ${{ secrets.QUALFLARE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,11 +56,15 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload results to Qualflare
-        if: always()
+        # Forked-repo pull_request runs never get repository secrets (GitHub
+        # withholds them regardless of the secret being configured on the
+        # base repo) — skip reporting rather than fail the job when there's
+        # no token to use. Same-repo pushes/PRs still report normally.
+        if: always() && env.QUALFLARE_TOKEN != ''
         uses: Qualflare/qualflare-action@v1
         env:
           QF_ENVIRONMENT: staging
         with:
-          token: ${{ secrets.QUALFLARE_TOKEN }}
+          token: ${{ env.QUALFLARE_TOKEN }}
           project: kast
           results: dashboard/e2e-results.xml
