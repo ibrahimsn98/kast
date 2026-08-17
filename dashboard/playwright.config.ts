@@ -2,7 +2,6 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig, devices } from "@playwright/test"
 import {
-  E2E_BACKEND_PORT,
   E2E_BACKEND_URL,
   E2E_BASE_URL,
   E2E_BIN_PATH,
