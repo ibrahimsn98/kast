@@ -12,6 +12,11 @@ server/data/playlists/
 dashboard/node_modules/
 dashboard/.next/
 dashboard/.env.local
+dashboard/playwright/.auth/
+dashboard/test-results/
+dashboard/playwright-report/
+dashboard/blob-report/
+dashboard/e2e-results.xml
 
 # ── Legacy / root-level ────────────────────────────────────────────────────────
 # dependencies

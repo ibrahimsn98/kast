@@ -1,0 +1,17 @@
+# Kast streaming server — Playwright e2e test configuration.
+# Not a real deployment config: no real secrets, ephemeral SQLite DB.
+# The backend is always started with its CWD redirected to a temp dir, so
+# `[library] scan_dirs` and the SQLite path (both default to "./data/...")
+# resolve there rather than under this repo's server/data/.
+
+[server]
+http_addr    = ":8081"
+public_url   = "http://localhost:8081"
+cors_origins = ["http://localhost:3100"]
+
+[admin]
+jwt_secret     = "e2e-test-jwt-secret-not-for-production"
+secure_cookies = false
+
+[log]
+level = "warn"
