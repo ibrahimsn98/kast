@@ -800,7 +800,7 @@ function MountAutoDJTab({ mount }: { mount: Mount }) {
             <SelectContent>
               {playlists.map((pl) => (
                 <SelectItem key={pl.id} value={pl.id}>
-                  {pl.name} <span className="text-ink-500 ml-1 text-xs">{pl.track_paths.length} tracks</span>
+                  {pl.name} <span className="text-ink-500 ml-1 text-xs">{pl.track_paths?.length ?? 0} tracks</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -842,7 +842,7 @@ function MountAutoDJTab({ mount }: { mount: Mount }) {
                 {playlists.map((pl) => (
                   <SelectItem key={pl.id} value={pl.id}>
                     {pl.name}{" "}
-                    <span className="text-ink-500 ml-1 text-xs">{pl.track_paths.length} tracks</span>
+                    <span className="text-ink-500 ml-1 text-xs">{pl.track_paths?.length ?? 0} tracks</span>
                   </SelectItem>
                 ))}
               </SelectContent>
