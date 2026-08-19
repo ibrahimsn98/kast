@@ -35,7 +35,6 @@ import (
 	"github.com/riza/kast/internal/ytimport"
 )
 
-
 const (
 	maxUploadBytes = 500 << 20        // 500 MB multipart upload limit
 	listenerTTL    = 30 * time.Second // HLS listener sliding window
@@ -191,11 +190,23 @@ func NewApp(
 		}
 		c.Set("Cache-Control", "no-cache")
 
-		// Inject LL-HLS server control header into playlist responses.
+		// Playlist responses get post-processed: LL-HLS server-control header
+		// and a now-playing EXT-X-DATERANGE tag, both injected on every request
+		// so they stay accurate as the underlying file is rewritten by ffmpeg.
 		if filePath == "index.m3u8" {
-			if mt, err := mounts.Get("/" + mountName); err == nil && mt.Protocol == "LL-HLS" {
-				return hlsutil.ServePlaylistWithLLHeaders(c, fullPath)
+			data, err := os.ReadFile(filepath.Clean(fullPath))
+			if err != nil {
+				return c.SendStatus(fiber.StatusNotFound)
 			}
+			body := string(data)
+			if mt, err := mounts.Get("/" + mountName); err == nil && mt.Protocol == "LL-HLS" {
+				body = hlsutil.InjectServerControl(body)
+			}
+			if t := djm.NowPlaying("/" + mountName); t != nil {
+				body = hlsutil.InjectNowPlaying(body, t.Title, t.Artist, t.ID, djm.NowPlayingSince("/"+mountName), t.DurationMs)
+			}
+			c.Set("Content-Type", "application/vnd.apple.mpegurl")
+			return c.SendString(body)
 		}
 
 		return c.SendFile(fullPath, false)
@@ -276,16 +287,16 @@ func NewApp(
 	api.Put("/users/:id", adminOnly, uh.Update)
 	api.Delete("/users/:id", adminOnly, uh.Delete)
 
-	mh   := &handler.Mounts{Manager: mounts, DJManager: djm, Webhooks: webhooks}
-	lh   := &handler.Library{Scanner: scanner, UploadDir: scanner.PrimaryUploadDir()}
-	plh  := &handler.Playlists{Manager: playlists, Webhooks: webhooks}
-	djh  := &handler.AutoDJ{DJManager: djm, Playlists: playlists, Scanner: scanner, Webhooks: webhooks}
-	sh   := &handler.Settings{Cfg: cfg, ConfigPath: configPath, LogLevel: logLevel}
-	svh  := &handler.Server{ConfigPath: configPath, DataDir: "./data"}
+	mh := &handler.Mounts{Manager: mounts, DJManager: djm, Webhooks: webhooks}
+	lh := &handler.Library{Scanner: scanner, UploadDir: scanner.PrimaryUploadDir()}
+	plh := &handler.Playlists{Manager: playlists, Webhooks: webhooks}
+	djh := &handler.AutoDJ{DJManager: djm, Playlists: playlists, Scanner: scanner, Webhooks: webhooks}
+	sh := &handler.Settings{Cfg: cfg, ConfigPath: configPath, LogLevel: logLevel}
+	svh := &handler.Server{ConfigPath: configPath, DataDir: "./data"}
 	whep := &handler.WHEP{Manager: djm.WebRTC}
-	yth  := &handler.YTImport{Manager: ytm}
-	whh  := &handler.Webhooks{Manager: webhooks}
-	sch  := &handler.Schedules{Manager: schedules, Webhooks: webhooks}
+	yth := &handler.YTImport{Manager: ytm}
+	whh := &handler.Webhooks{Manager: webhooks}
+	sch := &handler.Schedules{Manager: schedules, Webhooks: webhooks}
 
 	api.Get("/status", handler.Status)
 	api.Get("/settings", adminOnly, sh.Get)
@@ -300,7 +311,6 @@ func NewApp(
 		}
 		return respond.OK(c, entries)
 	})
-
 
 	api.Get("/mounts", mh.List)
 	api.Post("/mounts", mh.Create)
@@ -405,4 +415,3 @@ func extractBearer(c *fiber.Ctx) string {
 	}
 	return ""
 }
-
